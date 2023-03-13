@@ -1,24 +1,53 @@
-pipeline{
+pipeline {
     agent any
     tools {
         terraform 'terraform-01'
     }
 
-    stages{
-        stage("Git Checkout"){
-            steps{
-                git credentialsId: '9e43ada6-2b46-4fb5-ac2c-70aabd1678c2', url: 'https://github.com/msaidcevik/tf-jenkins.git'
+    environment {
+        USER_NAME = "ubuntu"
+    }
+    
+    stages {
+        stage('Github Checkout') {
+            steps {
+                git credentialsId: 'a5045a26-3ca3-4568-918c-2a68698cdb32', url: 'https://github.com/msaidcevik/tf-jenkins-demo.git'
             }
         }
-        stage("terraform init"){
-            steps{
-                sh 'terraform init'
+        
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init -no-color'
             }
         }
-        stage("terraform action"){
-            steps{
-                echo 'Terraform action from the parameter is --> ${action}'
+        
+        stage('Terraform apply') {
+            steps {
                 sh 'terraform ${action} -auto-approve -no-color'
+            }
+        }
+        
+        stage('Wait the instance') {
+            steps {
+                script {
+                    echo 'Waiting for the instance'
+                    id = sh(script: 'aws ec2 describe-instances --filters Name=tag-value,Values=roman-app Name=instance-state-name,Values=running --query Reservations[*].Instances[*].[InstanceId] --output text',  returnStdout:true).trim()
+                    sh 'aws ec2 wait instance-status-ok --instance-ids $id'
+                }
+            }
+        }
+        
+        stage('Connect Instance') {
+            steps {
+                echo 'Connect the created instance'
+                script {
+                    env.SERVER_IP = sh(script: 'terraform output -raw server_public_ip', returnStdout:true).trim()
+                }
+                sh 'echo ${SERVER_IP}'
+                
+                sshagent(['firstkey']) {
+                    sh 'ssh -o StrictHostKeyChecking=no -l ubuntu ${SERVER_IP} mkdir smoky123'
+                } 
             }
         }
     }
